@@ -12,6 +12,8 @@ master | 3.3.5
 
 ## Introduction
 
+This is a fork of TrinityCore so that I can conveniently manage some external scripts.
+
 TrinityCore is a *MMORPG* Framework based mostly in C++.
 
 It is derived from *MaNGOS*, the *Massive Network Game Object Server*, and is
