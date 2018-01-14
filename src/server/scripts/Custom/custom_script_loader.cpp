@@ -127,3 +127,7 @@ namespace {
 void AddSC_solocraft() {
   new solocraft_player_instance_handler();
 }
+
+void AddCustomScripts() {
+  AddSC_solocraft();
+}
