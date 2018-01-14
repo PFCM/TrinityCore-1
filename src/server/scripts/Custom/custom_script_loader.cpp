@@ -27,6 +27,8 @@
 #include "Map.h"
 #include "Group.h"
 #include "InstanceScript.h"
+#include "Log.h"
+#include "Chat.h"
 
 /*
  * TODO:
