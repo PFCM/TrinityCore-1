@@ -43,16 +43,16 @@ namespace {
       int difficulty = 1;
       if (map) {
 	if (map->Is25ManRaid()) {
-	  difficulty = 25;
+	  difficulty = 50;
 	}
 	else if (map->IsHeroic()) {
-	  difficulty = 10;
+	  difficulty = 20;
 	}
 	else if (map->IsRaid()) {
-	  difficulty = 40;
+	  difficulty = 80;
 	}
 	else if (map->IsDungeon()) {
-	  difficulty = 5;
+	  difficulty = 10;
 	}
       }
       return difficulty;
