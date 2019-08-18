@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -21,6 +21,7 @@
 #include "BattlefieldWG.h"
 #include "BattlegroundMgr.h"
 #include "Chat.h"
+#include "Containers.h"
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
 #include "Log.h"
@@ -174,7 +175,7 @@ void SpellMgr::SetSpellDifficultyId(uint32 spellId, uint32 id)
     mSpellDifficultySearcherMap[spellId] = id;
 }
 
-uint32 SpellMgr::GetSpellIdForDifficulty(uint32 spellId, Unit const* caster) const
+uint32 SpellMgr::GetSpellIdForDifficulty(uint32 spellId, WorldObject const* caster) const
 {
     if (!GetSpellInfo(spellId))
         return spellId;
@@ -216,7 +217,7 @@ uint32 SpellMgr::GetSpellIdForDifficulty(uint32 spellId, Unit const* caster) con
     return uint32(difficultyEntry->SpellID[mode]);
 }
 
-SpellInfo const* SpellMgr::GetSpellForDifficultyFromSpell(SpellInfo const* spell, Unit const* caster) const
+SpellInfo const* SpellMgr::GetSpellForDifficultyFromSpell(SpellInfo const* spell, WorldObject const* caster) const
 {
     if (!spell)
         return nullptr;
@@ -296,9 +297,9 @@ uint32 SpellMgr::GetSpellWithRank(uint32 spell_id, uint32 rank, bool strict) con
     return spell_id;
 }
 
-SpellRequiredMapBounds SpellMgr::GetSpellsRequiredForSpellBounds(uint32 spell_id) const
+Trinity::IteratorPair<SpellRequiredMap::const_iterator> SpellMgr::GetSpellsRequiredForSpellBounds(uint32 spell_id) const
 {
-    return mSpellReq.equal_range(spell_id);
+    return Trinity::Containers::MapEqualRange(mSpellReq, spell_id);
 }
 
 SpellsRequiringSpellMapBounds SpellMgr::GetSpellsRequiringSpellBounds(uint32 spell_id) const
@@ -543,7 +544,7 @@ bool SpellMgr::CanSpellTriggerProcOnEvent(SpellProcEntry const& procEntry, ProcE
         return false;
 
     // check spell family name/flags (if set) for spells
-    if (eventInfo.GetTypeMask() & (PERIODIC_PROC_FLAG_MASK | SPELL_PROC_FLAG_MASK))
+    if (eventInfo.GetTypeMask() & SPELL_PROC_FLAG_MASK)
     {
         if (SpellInfo const* eventSpellInfo = eventInfo.GetSpellInfo())
             if (!eventSpellInfo->IsAffected(procEntry.SpellFamilyName, procEntry.SpellFamilyMask))
@@ -640,10 +641,9 @@ bool SpellMgr::IsArenaAllowedEnchancment(uint32 ench_id) const
     return mEnchantCustomAttr[ench_id];
 }
 
-const std::vector<int32>* SpellMgr::GetSpellLinked(int32 spell_id) const
+std::vector<int32> const* SpellMgr::GetSpellLinked(int32 spell_id) const
 {
-    SpellLinkedMap::const_iterator itr = mSpellLinkedMap.find(spell_id);
-    return itr != mSpellLinkedMap.end() ? &(itr->second) : nullptr;
+    return Trinity::Containers::MapGetValuePtr(mSpellLinkedMap, spell_id);
 }
 
 PetLevelupSpellSet const* SpellMgr::GetPetLevelupSpellList(uint32 petFamily) const
@@ -696,11 +696,11 @@ SpellAreaForQuestAreaMapBounds SpellMgr::GetSpellAreaForQuestAreaMapBounds(uint3
 bool SpellArea::IsFitToRequirements(Player const* player, uint32 newZone, uint32 newArea) const
 {
     if (gender != GENDER_NONE)                   // is not expected gender
-        if (!player || gender != player->getGender())
+        if (!player || gender != player->GetNativeGender())
             return false;
 
     if (raceMask)                                // is not expected race
-        if (!player || !(raceMask & player->getRaceMask()))
+        if (!player || !(raceMask & player->GetRaceMask()))
             return false;
 
     if (areaId)                                  // is not in expected zone
@@ -871,8 +871,8 @@ void SpellMgr::LoadSpellRanks()
 
     uint32 oldMSTime = getMSTime();
 
-    //                                                     0             1      2
-    QueryResult result = WorldDatabase.Query("SELECT first_spell_id, spell_id, rank from spell_ranks ORDER BY first_spell_id, rank");
+    //                                                     0             1       2
+    QueryResult result = WorldDatabase.Query("SELECT first_spell_id, spell_id, `rank` from spell_ranks ORDER BY first_spell_id, `rank`");
 
     if (!result)
     {
@@ -1446,7 +1446,7 @@ void SpellMgr::LoadSpellGroupStackRules()
                     if (!spellInfo->Effects[i].IsAura())
                         continue;
 
-                    int32 auraName = static_cast<int32>(spellInfo->Effects[i].ApplyAuraName);
+                    uint32 auraName = spellInfo->Effects[i].ApplyAuraName;
                     for (std::vector<uint32> const& subGroup : SubGroups)
                     {
                         if (std::find(subGroup.begin(), subGroup.end(), auraName) != subGroup.end())
@@ -1529,8 +1529,8 @@ void SpellMgr::LoadSpellProcs()
 
     //                                                     0           1                2                 3                 4                 5
     QueryResult result = WorldDatabase.Query("SELECT SpellId, SchoolMask, SpellFamilyName, SpellFamilyMask0, SpellFamilyMask1, SpellFamilyMask2, "
-    //           6              7               8        9              10              11      12        13      14
-        "ProcFlags, SpellTypeMask, SpellPhaseMask, HitMask, AttributesMask, ProcsPerMinute, Chance, Cooldown, Charges FROM spell_proc");
+    //           6              7               8        9               10                  11              12      13        14       15
+        "ProcFlags, SpellTypeMask, SpellPhaseMask, HitMask, AttributesMask, DisableEffectsMask, ProcsPerMinute, Chance, Cooldown, Charges FROM spell_proc");
 
     uint32 count = 0;
     if (result)
@@ -1579,10 +1579,11 @@ void SpellMgr::LoadSpellProcs()
             baseProcEntry.SpellPhaseMask = fields[8].GetUInt32();
             baseProcEntry.HitMask = fields[9].GetUInt32();
             baseProcEntry.AttributesMask = fields[10].GetUInt32();
-            baseProcEntry.ProcsPerMinute = fields[11].GetFloat();
-            baseProcEntry.Chance = fields[12].GetFloat();
-            baseProcEntry.Cooldown = Milliseconds(fields[13].GetUInt32());
-            baseProcEntry.Charges = fields[14].GetUInt8();
+            baseProcEntry.DisableEffectsMask = fields[11].GetUInt32();
+            baseProcEntry.ProcsPerMinute = fields[12].GetFloat();
+            baseProcEntry.Chance = fields[13].GetFloat();
+            baseProcEntry.Cooldown = Milliseconds(fields[14].GetUInt32());
+            baseProcEntry.Charges = fields[15].GetUInt8();
 
             while (spellInfo)
             {
@@ -1621,7 +1622,7 @@ void SpellMgr::LoadSpellProcs()
                     TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u doesn't have any `ProcFlags` value defined, proc will not be triggered.", spellInfo->Id);
                 if (procEntry.SpellTypeMask & ~PROC_SPELL_TYPE_MASK_ALL)
                     TC_LOG_ERROR("sql.sql", "`spell_proc` table entry for spellId %u has wrong `SpellTypeMask` set: %u", spellInfo->Id, procEntry.SpellTypeMask);
-                if (procEntry.SpellTypeMask && !(procEntry.ProcFlags & (SPELL_PROC_FLAG_MASK | PERIODIC_PROC_FLAG_MASK)))
+                if (procEntry.SpellTypeMask && !(procEntry.ProcFlags & SPELL_PROC_FLAG_MASK))
                     TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u has `SpellTypeMask` value defined, but it will not be used for the defined `ProcFlags` value.", spellInfo->Id);
                 if (!procEntry.SpellPhaseMask && procEntry.ProcFlags & REQ_SPELL_PHASE_PROC_FLAG_MASK)
                     TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u doesn't have any `SpellPhaseMask` value defined, but it is required for the defined `ProcFlags` value. Proc will not be triggered.", spellInfo->Id);
@@ -1634,8 +1635,26 @@ void SpellMgr::LoadSpellProcs()
                 if (procEntry.HitMask && !(procEntry.ProcFlags & TAKEN_HIT_PROC_FLAG_MASK || (procEntry.ProcFlags & DONE_HIT_PROC_FLAG_MASK && (!procEntry.SpellPhaseMask || procEntry.SpellPhaseMask & (PROC_SPELL_PHASE_HIT | PROC_SPELL_PHASE_FINISH)))))
                     TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u has `HitMask` value defined, but it will not be used for defined `ProcFlags` and `SpellPhaseMask` values.", spellInfo->Id);
                 for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
-                    if ((procEntry.AttributesMask & (PROC_ATTR_DISABLE_EFF_0 << i)) && !spellInfo->Effects[i].IsAura())
-                        TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u has Attribute PROC_ATTR_DISABLE_EFF_%u, but effect %u is not an aura effect", spellInfo->Id, static_cast<uint32>(i), static_cast<uint32>(i));
+                    if ((procEntry.DisableEffectsMask & (1u << i)) && !spellInfo->Effects[i].IsAura())
+                        TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u has DisableEffectsMask with effect %u, but effect %u is not an aura effect", spellInfo->Id, static_cast<uint32>(i), static_cast<uint32>(i));
+                if (procEntry.AttributesMask & PROC_ATTR_REQ_SPELLMOD)
+                {
+                    bool found = false;
+                    for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                    {
+                        if (!spellInfo->Effects[i].IsAura())
+                            continue;
+
+                        if (spellInfo->Effects[i].ApplyAuraName == SPELL_AURA_ADD_PCT_MODIFIER || spellInfo->Effects[i].ApplyAuraName == SPELL_AURA_ADD_FLAT_MODIFIER)
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                        TC_LOG_ERROR("sql.sql", "The `spell_proc` table entry for spellId %u has Attribute PROC_ATTR_REQ_SPELLMOD, but spell has no spell mods. Proc will not be triggered", spellInfo->Id);
+                }
 
                 mSpellProcMap[spellInfo->Id] = procEntry;
 
@@ -1750,6 +1769,7 @@ void SpellMgr::LoadSpellProcs()
 
         bool addTriggerFlag = false;
         uint32 procSpellTypeMask = PROC_SPELL_TYPE_NONE;
+        uint32 nonProcMask = 0;
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
         {
             if (!spellInfo->Effects[i].IsEffect())
@@ -1760,7 +1780,11 @@ void SpellMgr::LoadSpellProcs()
                 continue;
 
             if (!isTriggerAura[auraName])
+            {
+                // explicitly disable non proccing auras to avoid losing charges on self proc
+                nonProcMask |= 1 << i;
                 continue;
+            }
 
             procSpellTypeMask |= spellTypeMask[auraName];
             if (isAlwaysTriggeredAura[auraName])
@@ -1780,7 +1804,6 @@ void SpellMgr::LoadSpellProcs()
                         break;
                 }
             }
-            break;
         }
 
         if (!procSpellTypeMask)
@@ -1832,6 +1855,11 @@ void SpellMgr::LoadSpellProcs()
                 case SPELL_AURA_MOD_BLOCK_PERCENT:
                     procEntry.HitMask = PROC_HIT_BLOCK;
                     break;
+                // proc auras with another aura reducing hit chance (eg 63767) only proc on missed attack
+                case SPELL_AURA_MOD_HIT_CHANCE:
+                    if (spellInfo->Effects[i].CalcValue() <= -100)
+                        procEntry.HitMask = PROC_HIT_MISS;
+                    break;
                 default:
                     continue;
             }
@@ -1839,6 +1867,7 @@ void SpellMgr::LoadSpellProcs()
         }
 
         procEntry.AttributesMask  = 0;
+        procEntry.DisableEffectsMask = nonProcMask;
         if (spellInfo->ProcFlags & PROC_FLAG_KILL)
             procEntry.AttributesMask |= PROC_ATTR_REQ_EXP_OR_HONOR;
         if (addTriggerFlag)
@@ -1856,7 +1885,7 @@ void SpellMgr::LoadSpellProcs()
     TC_LOG_INFO("server.loading", ">> Generated spell proc data for %u spells in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
-void SpellMgr::LoadSpellBonusess()
+void SpellMgr::LoadSpellBonuses()
 {
     uint32 oldMSTime = getMSTime();
 
@@ -2269,24 +2298,23 @@ void SpellMgr::LoadPetDefaultSpells()
     uint32 countCreature = 0;
     uint32 countData = 0;
 
-    CreatureTemplateContainer const* ctc = sObjectMgr->GetCreatureTemplates();
-    for (CreatureTemplateContainer::const_iterator itr = ctc->begin(); itr != ctc->end(); ++itr)
+    CreatureTemplateContainer const& ctc = sObjectMgr->GetCreatureTemplates();
+    for (auto const& creatureTemplatePair : ctc)
     {
-
-        if (!itr->second.PetSpellDataId)
+        if (!creatureTemplatePair.second.PetSpellDataId)
             continue;
 
         // for creature with PetSpellDataId get default pet spells from dbc
-        CreatureSpellDataEntry const* spellDataEntry = sCreatureSpellDataStore.LookupEntry(itr->second.PetSpellDataId);
+        CreatureSpellDataEntry const* spellDataEntry = sCreatureSpellDataStore.LookupEntry(creatureTemplatePair.second.PetSpellDataId);
         if (!spellDataEntry)
             continue;
 
-        int32 petSpellsId = -int32(itr->second.PetSpellDataId);
+        int32 petSpellsId = -int32(creatureTemplatePair.second.PetSpellDataId);
         PetDefaultSpellsEntry petDefSpells;
         for (uint8 j = 0; j < MAX_CREATURE_SPELL_DATA_SLOT; ++j)
             petDefSpells.spellid[j] = spellDataEntry->spellId[j];
 
-        if (LoadPetDefaultSpells_helper(&itr->second, petDefSpells))
+        if (LoadPetDefaultSpells_helper(&creatureTemplatePair.second, petDefSpells))
         {
             mPetDefaultSpellsMap[petSpellsId] = petDefSpells;
             ++countData;
@@ -2582,7 +2610,6 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
 {
     uint32 oldMSTime = getMSTime();
     uint32 oldMSTime2 = oldMSTime;
-    SpellInfo* spellInfo = nullptr;
 
     QueryResult result = WorldDatabase.Query("SELECT entry, attributes FROM spell_custom_attr");
 
@@ -2598,14 +2625,27 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
             uint32 spellId = fields[0].GetUInt32();
             uint32 attributes = fields[1].GetUInt32();
 
-            spellInfo = _GetSpellInfo(spellId);
+            SpellInfo* spellInfo = _GetSpellInfo(spellId);
             if (!spellInfo)
             {
                 TC_LOG_ERROR("sql.sql", "Table `spell_custom_attr` has wrong spell (entry: %u), ignored.", spellId);
                 continue;
             }
 
-            // TODO: validate attributes
+            if ((attributes & SPELL_ATTR0_CU_NEGATIVE) != 0)
+            {
+                for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                {
+                    if (spellInfo->Effects[i].IsEffect())
+                        continue;
+
+                    if ((attributes & (SPELL_ATTR0_CU_NEGATIVE_EFF0 << i)) != 0)
+                    {
+                        TC_LOG_ERROR("sql.sql", "Table `spell_custom_attr` has attribute SPELL_ATTR0_CU_NEGATIVE_EFF%u for spell %u with no EFFECT_%u", uint32(i), spellId, uint32(i));
+                        continue;
+                    }
+                }
+            }
 
             spellInfo->AttributesCu |= attributes;
             ++count;
@@ -2614,14 +2654,17 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
         TC_LOG_INFO("server.loading", ">> Loaded %u spell custom attributes from DB in %u ms", count, GetMSTimeDiffToNow(oldMSTime2));
     }
 
-    for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
+    for (SpellInfo* spellInfo : mSpellInfoMap)
     {
-        spellInfo = mSpellInfoMap[i];
         if (!spellInfo)
             continue;
 
         for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
         {
+            // all bleed effects and spells ignore armor
+            if (spellInfo->GetEffectMechanicMask(j) & (1 << MECHANIC_BLEED))
+                spellInfo->AttributesCu |= SPELL_ATTR0_CU_IGNORE_ARMOR;
+
             switch (spellInfo->Effects[j].ApplyAuraName)
             {
                 case SPELL_AURA_MOD_POSSESS:
@@ -2643,6 +2686,22 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
                 case SPELL_AURA_OBS_MOD_POWER:
                 case SPELL_AURA_POWER_BURN:
                     spellInfo->AttributesCu |= SPELL_ATTR0_CU_NO_INITIAL_THREAT;
+                    break;
+            }
+
+            switch (spellInfo->Effects[j].Effect)
+            {
+                case SPELL_EFFECT_SCHOOL_DAMAGE:
+                case SPELL_EFFECT_HEALTH_LEECH:
+                case SPELL_EFFECT_HEAL:
+                case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
+                case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
+                case SPELL_EFFECT_WEAPON_DAMAGE:
+                case SPELL_EFFECT_POWER_BURN:
+                case SPELL_EFFECT_HEAL_MECHANICAL:
+                case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
+                case SPELL_EFFECT_HEAL_PCT:
+                    spellInfo->AttributesCu |= SPELL_ATTR0_CU_CAN_CRIT;
                     break;
             }
 
@@ -2682,7 +2741,7 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
                 case SPELL_EFFECT_ENCHANT_HELD_ITEM:
                 {
                     // only enchanting profession enchantments procs can stack
-                    if (IsPartOfSkillLine(SKILL_ENCHANTING, i))
+                    if (IsPartOfSkillLine(SKILL_ENCHANTING, spellInfo->Id))
                     {
                         uint32 enchantId = spellInfo->Effects[j].MiscValue;
                         SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(enchantId);
@@ -2747,6 +2806,7 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
                                 spellInfo->Effects[j].ApplyAuraName == SPELL_AURA_PERIODIC_DUMMY)
                                 break;
                         }
+                        /* fallthrough */
                         default:
                         {
                             // No value and not interrupt cast or crowd control without SPELL_ATTR0_UNAFFECTED_BY_INVULNERABILITY flag
@@ -2790,14 +2850,7 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
             spellInfo->AttributesCu |= SPELL_ATTR0_CU_SCHOOLMASK_NORMAL_WITH_MAGIC;
         }
 
-        if (!spellInfo->_IsPositiveEffect(EFFECT_0, false))
-            spellInfo->AttributesCu |= SPELL_ATTR0_CU_NEGATIVE_EFF0;
-
-        if (!spellInfo->_IsPositiveEffect(EFFECT_1, false))
-            spellInfo->AttributesCu |= SPELL_ATTR0_CU_NEGATIVE_EFF1;
-
-        if (!spellInfo->_IsPositiveEffect(EFFECT_2, false))
-            spellInfo->AttributesCu |= SPELL_ATTR0_CU_NEGATIVE_EFF2;
+        spellInfo->_InitializeSpellPositivity();
 
         if (spellInfo->SpellVisual[0] == 3879)
             spellInfo->AttributesCu |= SPELL_ATTR0_CU_CONE_BACK;
@@ -2824,12 +2877,18 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
         }
 
         spellInfo->_InitializeExplicitTargetMask();
+
+        if (spellInfo->Speed > 0.0f)
+            if (SpellVisualEntry const* spellVisual = sSpellVisualStore.LookupEntry(spellInfo->SpellVisual[0]))
+                if (spellVisual->HasMissile)
+                    if (spellVisual->MissileModel == -4 || spellVisual->MissileModel == -5)
+                        spellInfo->AttributesCu |= SPELL_ATTR0_CU_NEEDS_AMMO_DATA;
+
     }
 
-    // addition for binary spells, ommit spells triggering other spells
-    for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
+    // addition for binary spells, omit spells triggering other spells
+    for (SpellInfo* spellInfo : mSpellInfoMap)
     {
-        spellInfo = mSpellInfoMap[i];
         if (!spellInfo)
             continue;
 
@@ -2861,6 +2920,46 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
 
         if (overrideAttr && allNonBinary)
             spellInfo->AttributesCu &= ~SPELL_ATTR0_CU_BINARY_SPELL;
+    }
+
+    // remove attribute from spells that can't crit
+    // and mark triggering spell (instead of triggered spell) for spells with SPELL_ATTR4_INHERIT_CRIT_FROM_AURA
+    for (SpellInfo* spellInfo : mSpellInfoMap)
+    {
+        if (!spellInfo)
+            continue;
+
+        if (spellInfo->HasAttribute(SPELL_ATTR2_CANT_CRIT))
+            spellInfo->AttributesCu &= ~SPELL_ATTR0_CU_CAN_CRIT;
+        else if (spellInfo->HasAttribute(SPELL_ATTR4_INHERIT_CRIT_FROM_AURA))
+        {
+            bool found = false;
+            for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
+            {
+                switch (spellInfo->Effects[j].ApplyAuraName)
+                {
+                    case SPELL_AURA_PERIODIC_TRIGGER_SPELL:
+                    case SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE:
+                        if (SpellInfo* triggerSpell = const_cast<SpellInfo*>(sSpellMgr->GetSpellInfo(spellInfo->Effects[j].TriggerSpell)))
+                            if (triggerSpell->HasAttribute(SPELL_ATTR0_CU_CAN_CRIT))
+                                found = true;
+                        break;
+                    default:
+                        continue;
+                }
+            }
+
+            if (found)
+                spellInfo->AttributesCu |= SPELL_ATTR0_CU_CAN_CRIT;
+        }
+    }
+
+    // add custom attribute to liquid auras
+    for (LiquidTypeEntry const* liquid : sLiquidTypeStore)
+    {
+        if (uint32 spellId = liquid->SpellId)
+            if (SpellInfo* spellInfo = _GetSpellInfo(spellId))
+                spellInfo->AttributesCu |= SPELL_ATTR0_CU_LIQUID_AURA;
     }
 
     TC_LOG_INFO("server.loading", ">> Loaded SpellInfo custom attributes in %u ms", GetMSTimeDiffToNow(oldMSTime));
@@ -2977,6 +3076,26 @@ void SpellMgr::LoadSpellInfoCorrections()
         });
     }
 
+    // Allows those to crit
+    ApplySpellFix({
+        379,   // Earth Shield
+        33778, // Lifebloom Final Bloom
+
+        52042, // Healing Stream Totem
+        // this one is here because we have no SP bonus for dmgclass none spell
+        // but this one should since it's DBC data, it won't crit because it already has can't crit attr
+
+        64844, // Divine Hymn
+        71607, // Item - Bauble of True Blood 10m
+        71646, // Item - Bauble of True Blood 25m
+        71610, // Item - Althor's Abacus trigger 10m
+        71641  // Item - Althor's Abacus trigger 25m
+    }, [](SpellInfo* spellInfo)
+    {
+        // We need more spells to find a general way (if there is any)
+        spellInfo->DmgClass = SPELL_DAMAGE_CLASS_MAGIC;
+    });
+
     // Spell Reflection
     ApplySpellFix({ 57643 }, [](SpellInfo* spellInfo)
     {
@@ -2991,10 +3110,29 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->Effects[0].TargetA = SpellImplicitTargetInfo(TARGET_DEST_DB);
     });
 
+    // Immolate
+    ApplySpellFix({
+        348,
+        707,
+        1094,
+        2941,
+        11665,
+        11667,
+        11668,
+        25309,
+        27215,
+        47810,
+        47811
+        }, [](SpellInfo* spellInfo)
+    {
+        // copy SP scaling data from direct damage to DoT
+        spellInfo->Effects[EFFECT_0].BonusMultiplier = spellInfo->Effects[EFFECT_1].BonusMultiplier;
+    });
+
     // Detect Undead
     ApplySpellFix({ 11389 }, [](SpellInfo* spellInfo)
     {
-        spellInfo->PowerType = 0;
+        spellInfo->PowerType = POWER_MANA;
         spellInfo->ManaCost = 0;
         spellInfo->ManaPerSecond = 0;
     });
@@ -3009,6 +3147,15 @@ void SpellMgr::LoadSpellInfoCorrections()
     ApplySpellFix({ 52611, 52612 }, [](SpellInfo* spellInfo)
     {
         spellInfo->Effects[EFFECT_0].MiscValueB = 64;
+    });
+
+    // Battlegear of Eternal Justice
+    ApplySpellFix({
+        26135, // Battlegear of Eternal Justice
+        37557  // Mark of Light
+    }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->SpellFamilyFlags = flag96();
     });
 
     ApplySpellFix({
@@ -3046,6 +3193,13 @@ void SpellMgr::LoadSpellInfoCorrections()
     }, [](SpellInfo* spellInfo)
     {
         spellInfo->AttributesEx4 |= SPELL_ATTR4_FIXED_DAMAGE;
+    });
+
+    // Missile Barrage
+    ApplySpellFix({ 44401 }, [](SpellInfo* spellInfo)
+    {
+        // should be consumed before Clearcasting
+        spellInfo->Priority = 100;
     });
 
     // Howl of Azgalor
@@ -3206,7 +3360,13 @@ void SpellMgr::LoadSpellInfoCorrections()
         52449, // Summon Skittering Infector (Force Cast)
         53609, // Summon Anub'ar Assassin (Force Cast)
         53457, // Summon Impale Trigger (AoE)
-        45907  // Torch Target Picker
+        45907, // Torch Target Picker
+        52953, // Torch
+        58121, // Torch
+        43109, // Throw Torch
+        58552, // Return to Orgrimmar
+        58533, // Return to Stormwind
+        21855  // Challenge Flag
     }, [](SpellInfo* spellInfo)
     {
         spellInfo->MaxAffectedTargets = 1;
@@ -3289,6 +3449,7 @@ void SpellMgr::LoadSpellInfoCorrections()
         48025, // Headless Horseman's Mount
         54729, // Winged Steed of the Ebon Blade
         58983, // Big Blizzard Bear
+        65917, // Magic Rooster
         71342, // Big Love Rocket
         72286, // Invincible
         74856, // Blazing Hippogryph
@@ -3516,6 +3677,14 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->AttributesEx3 |= SPELL_ATTR3_NO_INITIAL_AGGRO;
     });
 
+    // Vampiric Touch (dispel effect)
+    ApplySpellFix({ 64085 }, [](SpellInfo* spellInfo)
+    {
+        // copy from similar effect of Unstable Affliction (31117)
+        spellInfo->AttributesEx4 |= SPELL_ATTR4_FIXED_DAMAGE;
+        spellInfo->AttributesEx6 |= SPELL_ATTR6_LIMIT_PCT_DAMAGE_MODS;
+    });
+
     // Improved Devouring Plague
     ApplySpellFix({ 63675 }, [](SpellInfo* spellInfo)
     {
@@ -3678,12 +3847,19 @@ void SpellMgr::LoadSpellInfoCorrections()
     });
 
     ApplySpellFix({
+        51597, // Summon Scourged Captive
         56606, // Ride Jokkum
         61791  // Ride Vehicle (Yogg-Saron)
     }, [](SpellInfo* spellInfo)
     {
         /// @todo: remove this when basepoints of all Ride Vehicle auras are calculated correctly
         spellInfo->Effects[EFFECT_0].BasePoints = 1;
+    });
+
+    // Summon Scourged Captive
+    ApplySpellFix({ 51597 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_0].DieSides = 0;
     });
 
     // Black Magic
@@ -3721,7 +3897,14 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->AttributesEx7 |= SPELL_ATTR7_INTERRUPT_ONLY_NONPLAYER;
     });
 
+    // Guardian Spirit
+    ApplySpellFix({ 47788 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->ExcludeTargetAuraSpell = 72232; // Weakened Spirit
+    });
+
     ApplySpellFix({
+        15538, // Gout of Flame
         42490, // Energized!
         42492, // Cast Energized
         43115  // Plague Vial
@@ -3796,6 +3979,66 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->Effects[EFFECT_0].RadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_10_YARDS);
     });
 
+    ApplySpellFix({
+        37851, // Tag Greater Felfire Diemetradon
+        37918  // Arcano-pince
+    }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 3000;
+    });
+
+    // Jormungar Strike
+    ApplySpellFix({ 56513 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 2000;
+    });
+
+    ApplySpellFix({
+        54997, // Cast Net (tooltip says 10s but sniffs say 6s)
+        56524  // Acid Breath
+    }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 6000;
+    });
+
+    ApplySpellFix({
+        47911, // EMP
+        48620, // Wing Buffet
+        51752  // Stampy's Stompy-Stomp
+    }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 10000;
+    });
+
+    ApplySpellFix({
+        37727, // Touch of Darkness
+        54996  // Ice Slick (tooltip says 20s but sniffs say 12s)
+    }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 12000;
+    });
+
+    // Signal Helmet to Attack
+    ApplySpellFix({ 51748 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 15000;
+    });
+
+    ApplySpellFix({
+        51756, // Charge
+        37919, //Arcano-dismantle
+        37917  //Arcano-Cloak
+    }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RecoveryTime = 20000;
+    });
+
+    // Summon Frigid Bones
+    ApplySpellFix({ 53525 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->DurationEntry = sSpellDurationStore.LookupEntry(4); // 2 minutes
+    });
+
     //
     // VIOLET HOLD SPELLS
     //
@@ -3842,17 +4085,6 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->MaxAffectedTargets = 1;
     });
 
-    // Boom (XT-002)
-    ApplySpellFix({ 62834 }, [](SpellInfo* spellInfo)
-    {
-        // This hack is here because we suspect our implementation of spell effect execution on targets
-        // is done in the wrong order. We suspect that EFFECT_0 needs to be applied on all targets,
-        // then EFFECT_1, etc - instead of applying each effect on target1, then target2, etc.
-        // The above situation causes the visual for this spell to be bugged, so we remove the instakill
-        // effect and implement a script hack for that.
-        spellInfo->Effects[EFFECT_1].Effect = 0;
-    });
-
     ApplySpellFix({
         64386, // Terrifying Screech (Auriaya)
         64389, // Sentinel Blast (Auriaya)
@@ -3860,6 +4092,12 @@ void SpellMgr::LoadSpellInfoCorrections()
     }, [](SpellInfo* spellInfo)
     {
         spellInfo->DurationEntry = sSpellDurationStore.LookupEntry(28); // 5 seconds, wrong DBC data?
+    });
+
+    // Summon Swarming Guardian (Auriaya)
+    ApplySpellFix({ 64397 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RangeEntry = sSpellRangeStore.LookupEntry(137); // 8y, Based in BFA effect radius
     });
 
     // Potent Pheromones (Freya)
@@ -4481,6 +4719,12 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->ProcChance = 10;
     });
 
+    // Survey Sinkholes
+    ApplySpellFix({ 45853 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->RangeEntry = sSpellRangeStore.LookupEntry(5); // 40 yards
+    });
+
     ApplySpellFix({
         41485, // Deadly Poison - Black Temple
         41487  // Envenom - Black Temple
@@ -4645,6 +4889,25 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->Effects[EFFECT_1].RadiusEntry = sSpellRadiusStore.LookupEntry(EFFECT_RADIUS_3_YARDS); // 3yd
     });
 
+    // Baron Rivendare (Stratholme) - Unholy Aura
+    ApplySpellFix({ 17466, 17467 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->AttributesEx3 |= SPELL_ATTR3_NO_INITIAL_AGGRO;
+    });
+
+    // Spore - Spore Visual
+    ApplySpellFix({ 42525 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->AttributesEx3 |= SPELL_ATTR3_DEATH_PERSISTENT;
+        spellInfo->AttributesEx2 |= SPELL_ATTR2_CAN_TARGET_DEAD;
+    });
+
+    // Death's Embrace
+    ApplySpellFix({ 47198, 47199, 47200 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Effects[EFFECT_1].SpellClassMask[0] |= 0x00004000; // Drain soul
+    });
+
     for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
     {
         SpellInfo* spellInfo = mSpellInfoMap[i];
@@ -4692,6 +4955,13 @@ void SpellMgr::LoadSpellInfoCorrections()
             if (spellInfo->IsPassive() && GetTalentSpellCost(i))
                 if (spellInfo->Effects[j].TargetA.GetTarget() == TARGET_UNIT_PET)
                     spellInfo->Effects[j].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_CASTER);
+
+            // Area auras may not target area (they're self cast)
+            if (spellInfo->Effects[j].IsAreaAuraEffect() && spellInfo->Effects[j].IsTargetingArea())
+            {
+                spellInfo->Effects[j].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_CASTER);
+                spellInfo->Effects[j].TargetB = SpellImplicitTargetInfo(0);
+            }
         }
 
         // disable proc for magnet auras, they're handled differently
@@ -4718,6 +4988,10 @@ void SpellMgr::LoadSpellInfoCorrections()
                     spellInfo->SpellFamilyFlags[0] |= 0x40;
                 break;
         }
+
+        // allows those to calculate proper crit chance, that needs to be passed on to triggered spell
+        if (spellInfo->HasAttribute(SPELL_ATTR4_INHERIT_CRIT_FROM_AURA) && spellInfo->DmgClass == SPELL_DAMAGE_CLASS_NONE)
+            spellInfo->DmgClass = SPELL_DAMAGE_CLASS_MAGIC;
     }
 
     if (SummonPropertiesEntry* properties = const_cast<SummonPropertiesEntry*>(sSummonPropertiesStore.LookupEntry(121)))
@@ -4726,6 +5000,9 @@ void SpellMgr::LoadSpellInfoCorrections()
         properties->Type = SUMMON_TYPE_TOTEM;
     if (SummonPropertiesEntry* properties = const_cast<SummonPropertiesEntry*>(sSummonPropertiesStore.LookupEntry(628))) // Hungry Plaguehound
         properties->Category = SUMMON_CATEGORY_PET;
+
+    if (LockEntry* entry = const_cast<LockEntry*>(sLockStore.LookupEntry(36))) // 3366 Opening, allows to open without proper key
+        entry->Type[2] = LOCK_KEY_NONE;
 
     TC_LOG_INFO("server.loading", ">> Loaded SpellInfo corrections in %u ms", GetMSTimeDiffToNow(oldMSTime));
 }

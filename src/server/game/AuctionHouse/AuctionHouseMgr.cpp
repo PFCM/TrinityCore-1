@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -432,7 +432,7 @@ bool AuctionHouseMgr::RemoveAItem(ObjectGuid::LowType id, bool deleteItem /*= fa
     return true;
 }
 
-bool AuctionHouseMgr::PendingAuctionAdd(Player* player, AuctionEntry* aEntry, Item* item)
+bool AuctionHouseMgr::PendingAuctionAdd(Player* player, AuctionEntry* aEntry)
 {
     PlayerAuctions* thisAH;
     auto itr = pendingAuctionMap.find(player->GetGUID());
@@ -443,10 +443,10 @@ bool AuctionHouseMgr::PendingAuctionAdd(Player* player, AuctionEntry* aEntry, It
         // Get deposit so far
         uint32 totalDeposit = 0;
         for (AuctionEntry const* thisAuction : *thisAH)
-            totalDeposit += GetAuctionDeposit(thisAuction->auctionHouseEntry, thisAuction->etime, item, thisAuction->itemCount);
+            totalDeposit += thisAuction->deposit;
 
         // Add this deposit
-        totalDeposit += GetAuctionDeposit(aEntry->auctionHouseEntry, aEntry->etime, item, aEntry->itemCount);
+        totalDeposit += aEntry->deposit;
 
         if (!player->HasEnoughMoney(totalDeposit))
             return false;
@@ -477,40 +477,34 @@ void AuctionHouseMgr::PendingAuctionProcess(Player* player)
 
     PlayerAuctions* thisAH = iterMap->second.first;
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
-
-    uint32 totalItems = 0;
-    for (auto itrAH = thisAH->begin(); itrAH != thisAH->end(); ++itrAH)
+    uint32 totaldeposit = 0;
+    auto itrAH = thisAH->begin();
+    for (; itrAH != thisAH->end(); ++itrAH)
     {
         AuctionEntry* AH = (*itrAH);
-        totalItems += AH->itemCount;
+        if (!player->HasEnoughMoney(totaldeposit + AH->deposit))
+            break;
+
+        totaldeposit += AH->deposit;
     }
 
-    uint32 totaldeposit = 0;
-    auto itr = (*thisAH->begin());
-
-    if (Item* item = GetAItem(itr->itemGUIDLow))
-         totaldeposit = GetAuctionDeposit(itr->auctionHouseEntry, itr->etime, item, totalItems);
-
-    uint32 depositremain = totaldeposit;
-    for (auto itr = thisAH->begin(); itr != thisAH->end(); ++itr)
+    // expire auctions we cannot afford
+    if (itrAH != thisAH->end())
     {
-        AuctionEntry* AH = (*itr);
+        SQLTransaction trans = CharacterDatabase.BeginTransaction();
 
-        if (next(itr) == thisAH->end())
-            AH->deposit = depositremain;
-        else
+        do
         {
-            AH->deposit = totaldeposit / thisAH->size();
-            depositremain -= AH->deposit;
-        }
+            AuctionEntry* AH = (*itrAH);
+            AH->expire_time = GameTime::GetGameTime();
+            AH->DeleteFromDB(trans);
+            AH->SaveToDB(trans);
+            ++itrAH;
+        } while (itrAH != thisAH->end());
 
-        AH->DeleteFromDB(trans);
-
-        AH->SaveToDB(trans);
+        CharacterDatabase.CommitTransaction(trans);
     }
 
-    CharacterDatabase.CommitTransaction(trans);
     pendingAuctionMap.erase(player->GetGUID());
     delete thisAH;
     player->ModifyMoney(-int32(totaldeposit));
@@ -710,14 +704,14 @@ void AuctionHouseObject::BuildListAuctionItems(WorldPacket& data, Player* player
 
     time_t curTime = GameTime::GetGameTime();
 
-    PlayerGetAllThrottleMap::const_iterator itr = GetAllThrottleMap.find(player->GetGUID());
+    auto itr = GetAllThrottleMap.find(player->GetGUID());
     time_t throttleTime = itr != GetAllThrottleMap.end() ? itr->second : curTime;
 
     if (getall && throttleTime <= curTime)
     {
-        for (AuctionEntryMap::const_iterator itr = AuctionsMap.begin(); itr != AuctionsMap.end(); ++itr)
+        for (AuctionEntryMap::const_iterator it = AuctionsMap.begin(); it != AuctionsMap.end(); ++it)
         {
-            AuctionEntry* Aentry = itr->second;
+            AuctionEntry* Aentry = it->second;
             // Skip expired auctions
             if (Aentry->expire_time < curTime)
                 continue;
@@ -737,9 +731,9 @@ void AuctionHouseObject::BuildListAuctionItems(WorldPacket& data, Player* player
         return;
     }
 
-    for (AuctionEntryMap::const_iterator itr = AuctionsMap.begin(); itr != AuctionsMap.end(); ++itr)
+    for (AuctionEntryMap::const_iterator it = AuctionsMap.begin(); it != AuctionsMap.end(); ++it)
     {
-        AuctionEntry* Aentry = itr->second;
+        AuctionEntry* Aentry = it->second;
         // Skip expired auctions
         if (Aentry->expire_time < curTime)
             continue;
