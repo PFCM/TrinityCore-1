@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -265,6 +265,7 @@ public:
             me->SetDisableGravity(true);
             me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
             me->setActive(true);
+            me->SetFarVisible(true);
 
             for (uint8 i = 0; i < 4; ++i)
                 if (GameObject* pOrb = GetOrb(i))
@@ -312,6 +313,7 @@ public:
                         pOrb->CastSpell(me, SPELL_RING_OF_BLUE_FLAMES);
                         pOrb->SetFaction(FACTION_FRIENDLY);
                         pOrb->setActive(true);
+                        pOrb->SetFarVisible(true);
                         pOrb->Refresh();
                     }
                 }
@@ -324,6 +326,7 @@ public:
                     pOrb->CastSpell(me, SPELL_RING_OF_BLUE_FLAMES);
                     pOrb->SetFaction(FACTION_FRIENDLY);
                     pOrb->setActive(true);
+                    pOrb->SetFarVisible(true);
                     pOrb->Refresh();
 
                     OrbsEmpowered = (OrbsEmpowered+1)%4;
@@ -351,10 +354,11 @@ public:
             {
                 if (GameObject* pOrb = GetOrb(i))
                 {
-                    if (pOrb->GetFaction() == 35)
+                    if (pOrb->GetFaction() == FACTION_FRIENDLY)
                     {
                         pOrb->CastSpell(me, SPELL_RING_OF_BLUE_FLAMES);
                         pOrb->setActive(true);
+                        pOrb->SetFarVisible(true);
                         pOrb->Refresh();
                     }
                 }
@@ -376,7 +380,7 @@ class go_orb_of_the_blue_flight : public GameObjectScript
 
             bool GossipHello(Player* player) override
             {
-                if (me->GetFaction() == 35)
+                if (me->GetFaction() == FACTION_FRIENDLY)
                 {
                     player->SummonCreature(NPC_POWER_OF_THE_BLUE_DRAGONFLIGHT, player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), 0.0f, TEMPSUMMON_TIMED_DESPAWN, 121000);
                     player->CastSpell(player, SPELL_VENGEANCE_OF_THE_BLUE_FLIGHT, false);
@@ -619,7 +623,7 @@ public:
         //      summoned->SetVisibility(VISIBILITY_OFF);  //with this we cant see the armageddon visuals
             }
             else
-                summoned->SetLevel(me->getLevel());
+                summoned->SetLevel(me->GetLevel());
 
             summoned->SetFaction(me->GetFaction());
             summons.Summon(summoned);
@@ -948,7 +952,7 @@ public:
         void JustSummoned(Creature* summoned) override
         {
             summoned->SetFaction(me->GetFaction());
-            summoned->SetLevel(me->getLevel());
+            summoned->SetLevel(me->GetLevel());
         }
 
         void JustEngagedWith(Unit* who) override
@@ -1041,7 +1045,7 @@ public:
         void JustSummoned(Creature* summoned) override
         {
             summoned->SetFaction(me->GetFaction());
-            summoned->SetLevel(me->getLevel());
+            summoned->SetLevel(me->GetLevel());
         }
 
         void UpdateAI(uint32 diff) override
@@ -1322,7 +1326,7 @@ public:
 
             if ((victimClass == 0) && me->GetVictim())
             {
-                victimClass = me->EnsureVictim()->getClass();
+                victimClass = me->EnsureVictim()->GetClass();
                 switch (victimClass)
                 {
                     case CLASS_DRUID:

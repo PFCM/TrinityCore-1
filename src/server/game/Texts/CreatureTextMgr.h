@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -91,7 +91,7 @@ class TC_GAME_API CreatureTextMgr
 
         void LoadCreatureTexts();
         void LoadCreatureTextLocales();
-        CreatureTextMap  const& GetTextMap() const { return mTextMap; }
+        CreatureTextMap const& GetTextMap() const { return mTextMap; }
 
         void SendSound(Creature* source, uint32 sound, ChatMsg msgType, WorldObject const* whisperTarget, CreatureTextRange range, Team team, bool gmOnly);
         void SendEmote(Unit* source, uint32 emote);
